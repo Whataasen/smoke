@@ -188,15 +188,129 @@ test('статистика: экономия считается по завер�
   assert.equal(L.stats(s, at(14, 10)).saved, 180);
 });
 
-test('статистика: ряд за 14 дней заканчивается сегодняшним', () => {
-  let s = L.smoke(fresh(at(13, 9)), at(13, 9));
-  const series = L.stats(s, at(13, 10)).series;
-  assert.equal(series.length, 14);
-  assert.deepEqual(series[13], { key: '2026-11-13', count: 1, interval: 60, early: 0 });
-  assert.deepEqual(series[0], { key: '2026-10-31', count: null, interval: null, early: 0 });
-});
-
 test('оценка сигарет в день при 16 часах бодрствования', () => {
   assert.equal(L.perDay(60), 16);
   assert.equal(L.perDay(480), 2);
+});
+
+// ---------- отчёт за период ----------
+const on = (y, m, d, h = 12, mi = 0) => new Date(y, m - 1, d, h, mi).getTime();
+
+test('отчёт: до 31 дня — по дням, пустые дни без значений', () => {
+  let s = L.smoke(fresh(at(12, 9)), at(12, 9));
+  s = L.smoke(s, at(12, 11));
+  const r = L.report(s, '2026-11-11', '2026-11-13');
+  assert.equal(r.unit, 'day');
+  assert.equal(r.buckets.length, 3);
+  assert.equal(r.buckets[0].perDay, null);
+  assert.equal(r.buckets[1].perDay, 2);
+  assert.equal(r.buckets[1].from, '2026-11-12');
+});
+
+test('отчёт: реальный интервал — среднее между сигаретами, рядом заданный', () => {
+  let s = L.smoke(fresh(at(12, 9)), at(12, 9));
+  s = L.smoke(s, at(12, 10));
+  s = L.smoke(s, at(12, 11, 30));
+  const b = L.report(s, '2026-11-12', '2026-11-12').buckets[0];
+  assert.equal(b.actual, 75);
+  assert.equal(b.target, 60);
+  assert.equal(b.gaps, 2);
+  assert.equal(b.onTime, 2);
+});
+
+test('отчёт: сигарета раньше времени не считается выдержанной', () => {
+  let s = L.smoke(fresh(at(12, 9)), at(12, 9));
+  s = L.smoke(s, at(12, 9, 30));
+  s = L.smoke(s, at(12, 11));
+  const b = L.report(s, '2026-11-12', '2026-11-12').buckets[0];
+  assert.equal(b.gaps, 2);
+  assert.equal(b.onTime, 1);
+  assert.equal(b.actual, 60);
+});
+
+test('отчёт: ночной промежуток без указанного сна в интервалы не идёт', () => {
+  let s = L.smoke(fresh(at(12, 23)), at(12, 23));
+  s = L.smoke(s, at(13, 9));
+  s = L.smoke(s, at(13, 10));
+  const b = L.report(s, '2026-11-13', '2026-11-13').buckets[0];
+  assert.equal(b.gaps, 1);
+  assert.equal(b.actual, 60);
+});
+
+test('отчёт: с указанным сном первый интервал дня считается по бодрствованию', () => {
+  let s = L.smoke(fresh(at(12, 23)), at(12, 23));
+  s = L.smoke(s, at(13, 9));
+  s = L.setSleep(s, at(13, 9, 30), at(13, 0), at(13, 8));
+  const b = L.report(s, '2026-11-13', '2026-11-13').buckets[0];
+  assert.equal(b.gaps, 1);
+  assert.equal(b.actual, 120);
+});
+
+test('отчёт: от 32 дней — по неделям, последняя неделя заканчивается концом периода', () => {
+  const s = fresh(on(2026, 9, 1));
+  const r = L.report(s, '2026-10-01', '2026-11-13');
+  assert.equal(r.unit, 'week');
+  const last = r.buckets[r.buckets.length - 1];
+  assert.equal(last.from, '2026-11-07');
+  assert.equal(last.to, '2026-11-13');
+  assert.equal(r.buckets[0].from, '2026-10-01');
+});
+
+test('отчёт: больше полугода — по календарным месяцам', () => {
+  const s = fresh(on(2026, 1, 1));
+  const r = L.report(s, '2026-01-15', '2026-11-13');
+  assert.equal(r.unit, 'month');
+  assert.equal(r.buckets.length, 11);
+  assert.equal(r.buckets[0].from, '2026-01-15');
+  assert.equal(r.buckets[1].from, '2026-02-01');
+  assert.equal(r.buckets[1].to, '2026-02-28');
+});
+
+test('отчёт: недельный столбик усредняет сигареты по дням с записями', () => {
+  let s = fresh(on(2026, 10, 1));
+  for (const h of [9, 11, 13]) s = L.smoke(s, at(10, h));
+  s = L.smoke(s, at(12, 9));
+  const r = L.report(s, '2026-10-01', '2026-11-13');
+  const last = r.buckets[r.buckets.length - 1];
+  assert.equal(last.days, 2);
+  assert.equal(last.total, 4);
+  assert.equal(last.perDay, 2);
+});
+
+test('отчёт: сводка за период', () => {
+  let s = L.smoke(fresh(at(11, 9)), at(11, 9));
+  s = L.smoke(s, at(11, 9, 30));
+  s = L.smoke(s, at(12, 9));
+  s = L.smoke(s, at(12, 12));
+  const sum = L.report(s, '2026-11-10', '2026-11-13').summary;
+  assert.equal(sum.days, 2);
+  assert.equal(sum.total, 4);
+  assert.equal(sum.perDay, 2);
+  assert.equal(sum.gaps, 2);
+  assert.equal(sum.onTime, 1);
+  assert.equal(sum.actual, 105);
+  assert.equal(sum.longest, 180);
+  assert.equal(sum.target, 60);
+});
+
+test('отчёт: перепутанные даты периода меняются местами', () => {
+  const r = L.report(fresh(at(13, 9)), '2026-11-13', '2026-11-11');
+  assert.equal(r.buckets.length, 3);
+});
+
+test('первый день с записями', () => {
+  assert.equal(L.firstDay(fresh(at(13, 9))), null);
+  let s = L.smoke(fresh(at(11, 9)), at(11, 9));
+  s = L.smoke(s, at(13, 9));
+  assert.equal(L.firstDay(s), '2026-11-11');
+});
+
+test('отчёт: интервал через пропущенный день не считается, даже если сон указан', () => {
+  let s = L.smoke(fresh(at(10, 22)), at(10, 22));
+  s = L.smoke(s, at(12, 9));
+  s = L.setSleep(s, at(12, 9, 30), at(12, 0), at(12, 8));
+  s = L.smoke(s, at(12, 11));
+  const b = L.report(s, '2026-11-12', '2026-11-12').buckets[0];
+  assert.equal(b.gaps, 1);
+  assert.equal(b.actual, 120);
 });

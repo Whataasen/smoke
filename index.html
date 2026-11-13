@@ -14,6 +14,7 @@
     --accent: var(--tg-theme-button-color, #2f81f7);
     --accent-text: var(--tg-theme-button-text-color, #ffffff);
     --good: #2fa84f;
+    --s1: #2a78d6; --s2: #eb6834;
     --track: color-mix(in srgb, var(--hint) 22%, transparent);
   }
   @media (prefers-color-scheme: dark) {
@@ -23,8 +24,11 @@
       --hint: var(--tg-theme-hint-color, #8b939e);
       --card: var(--tg-theme-secondary-bg-color, #22252b);
       --good: #3fc463;
+      --s1: #3987e5; --s2: #d95926;
     }
   }
+  :root[data-scheme="light"] { --s1: #2a78d6; --s2: #eb6834; --good: #2fa84f; }
+  :root[data-scheme="dark"] { --s1: #3987e5; --s2: #d95926; --good: #3fc463; }
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
   html, body { margin: 0; background: var(--bg); color: var(--text); }
   body {
@@ -92,16 +96,38 @@
   .btn.small { font-size: 15px; padding: 11px; border-radius: 12px; }
   .sleep-actions .ghost { width: auto; flex: none; }
 
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .chip {
+    border: 0; border-radius: 999px; padding: 8px 12px; cursor: pointer;
+    font: inherit; font-size: 14px; background: var(--bg); color: var(--text);
+  }
+  .chip.on { background: var(--accent); color: var(--accent-text); }
+  .range { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 12px; }
+  .range input { background: var(--bg); margin-top: 4px; min-height: 48px; font-size: 15px; padding: 10px; }
+
+  .legend { display: flex; gap: 16px; font-size: 13px; margin: -2px 0 14px; }
+  .legend span { display: flex; align-items: center; gap: 6px; }
+  .sw { width: 10px; height: 10px; border-radius: 3px; display: inline-block; }
+  .s1 { background: var(--s1); }
+  .s2 { background: var(--s2); }
+  .mono { background: color-mix(in srgb, var(--text) 55%, transparent); }
+
   .chart { display: flex; align-items: flex-end; gap: 2px; height: 104px; position: relative; }
-  .chart .max { position: absolute; top: -4px; left: 0; font-size: 11px; color: var(--hint); }
-  .col { flex: 1; height: 100%; display: flex; flex-direction: column; justify-content: flex-end; cursor: pointer; }
-  .bar { background: var(--accent); border-radius: 4px 4px 0 0; min-height: 2px; opacity: .85; }
+  .chart .max { position: absolute; top: -6px; left: 0; font-size: 11px; color: var(--hint); }
+  .col {
+    flex: 1; min-width: 0; height: 100%; display: flex; align-items: flex-end; justify-content: center;
+    gap: 2px; padding: 0 1px; cursor: pointer; border-radius: 4px 4px 0 0;
+  }
+  .col.sel { background: var(--track); }
+  .bar { flex: 1; max-width: 22px; border-radius: 4px 4px 0 0; min-height: 2px; }
   .bar.empty { background: var(--track); height: 2px; border-radius: 0; }
-  .col.sel .bar { opacity: 1; outline: 2px solid var(--text); outline-offset: 1px; }
   .days { display: flex; gap: 2px; margin-top: 4px; }
-  .days span { flex: 1; text-align: center; font-size: 10px; color: var(--hint); font-variant-numeric: tabular-nums; }
+  .days span {
+    flex: 1; min-width: 0; text-align: center; font-size: 10px; color: var(--hint);
+    font-variant-numeric: tabular-nums; white-space: nowrap; overflow: visible;
+  }
   .days span.today { color: var(--text); font-weight: 700; }
-  .chart-info { margin-top: 8px; font-size: 14px; min-height: 20px; }
+  .chart-info { margin-top: 8px; font-size: 14px; min-height: 40px; }
 
   label { display: block; font-size: 14px; color: var(--hint); margin: 14px 0 6px; }
   input {
@@ -196,10 +222,42 @@
   </div>
 
   <div class="card">
-    <h2>Сигарет в день, 14 дней</h2>
-    <div class="chart" id="chart"></div>
-    <div class="days" id="chart-days"></div>
-    <div class="chart-info hint" id="chart-info"></div>
+    <h2>Статистика за период</h2>
+    <div class="chips" id="chips">
+      <button class="chip" data-p="14">14 дней</button>
+      <button class="chip" data-p="30">30 дней</button>
+      <button class="chip" data-p="90">90 дней</button>
+      <button class="chip" data-p="182">Полгода</button>
+      <button class="chip" data-p="all">Всё</button>
+    </div>
+    <div class="range">
+      <div><div class="hint">С</div><input type="date" id="p-from" aria-label="Начало периода"></div>
+      <div><div class="hint">По</div><input type="date" id="p-to" aria-label="Конец периода"></div>
+    </div>
+    <div class="tiles" style="margin-top:14px">
+      <div class="tile"><div class="v" id="p-perday">—</div><div class="l">сигарет в день в среднем</div></div>
+      <div class="tile"><div class="v" id="p-actual">—</div><div class="l" id="p-actual-l">реальный интервал</div></div>
+      <div class="tile"><div class="v" id="p-ontime">—</div><div class="l" id="p-ontime-l">выдержано вовремя</div></div>
+      <div class="tile"><div class="v" id="p-longest">—</div><div class="l">самый длинный перерыв</div></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2 id="h-iv">Интервал: заданный и реальный</h2>
+    <div class="legend">
+      <span><i class="sw s1"></i>заданный</span>
+      <span><i class="sw s2"></i>реальный (в среднем)</span>
+    </div>
+    <div class="chart" id="chart-iv"></div>
+    <div class="days" id="days-iv"></div>
+    <div class="chart-info hint" id="info-iv"></div>
+  </div>
+
+  <div class="card">
+    <h2 id="h-cig">Сигарет в день</h2>
+    <div class="chart" id="chart-cig"></div>
+    <div class="days" id="days-cig"></div>
+    <div class="chart-info hint" id="info-cig"></div>
   </div>
 
 </div>

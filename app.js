@@ -95,7 +95,9 @@
   }
   function fmtDay(key) {
     const [y, m, d] = key.split('-').map(Number);
-    return new Date(y, m - 1, d).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' });
+    const opts = { day: 'numeric', month: 'long' };
+    if (y !== new Date().getFullYear()) opts.year = 'numeric';
+    return new Date(y, m - 1, d).toLocaleDateString('ru-RU', opts);
   }
 
   function alertMsg(text) {
@@ -148,6 +150,118 @@
     $('undo').hidden = !(rec && rec.s.length && last !== null && now - last < UNDO_WINDOW_MS);
   }
 
+  // ---------- статистика за период ----------
+  const MONTHS = ['янв', 'фев', 'мар', 'апр', 'май', 'июн', 'июл', 'авг', 'сен', 'окт', 'ноя', 'дек'];
+  const UNIT_SUFFIX = { day: '', week: ', по неделям', month: ', по месяцам' };
+  let preset = '14'; // активная кнопка периода; null, если даты выбраны вручную
+  let custom = null;
+
+  function currentPeriod() {
+    const today = L.dayKey(Date.now());
+    if (custom) return custom;
+    if (preset === 'all') return { from: L.firstDay(state) || today, to: today };
+    return { from: L.shiftKey(today, -(Number(preset) - 1)), to: today };
+  }
+
+  const rangeLabel = (b) => (b.from === b.to ? fmtDay(b.from) : `${fmtDay(b.from)} – ${fmtDay(b.to)}`);
+  function tickLabel(b, unit) {
+    const [, m, d] = b.from.split('-').map(Number);
+    return unit === 'day' ? String(d) : unit === 'week' ? `${d}.${pad(m)}` : MONTHS[m - 1];
+  }
+
+  // series: [{ cls, value(bucket) → число или null }]
+  function drawChart(prefix, rep, series, maxLabel, describe) {
+    const chart = $('chart-' + prefix), days = $('days-' + prefix), info = $('info-' + prefix);
+    const max = Math.max(1, ...rep.buckets.flatMap((b) => series.map((s) => s.value(b) || 0)));
+    chart.innerHTML = '';
+    const maxEl = document.createElement('span');
+    maxEl.className = 'max';
+    maxEl.textContent = maxLabel(max);
+    chart.appendChild(maxEl);
+    days.innerHTML = '';
+    const n = rep.buckets.length;
+    const every = Math.ceil(n / 8);
+    const today = L.dayKey(Date.now());
+    rep.buckets.forEach((b, idx) => {
+      const col = document.createElement('div');
+      col.className = 'col';
+      for (const s of series) {
+        const v = s.value(b);
+        const bar = document.createElement('div');
+        if (v === null) bar.className = 'bar empty';
+        else {
+          bar.className = 'bar ' + s.cls;
+          bar.style.height = Math.max(2, Math.round((v / max) * 88)) + 'px';
+        }
+        col.appendChild(bar);
+      }
+      const text = `${rangeLabel(b)}: ${describe(b)}`;
+      col.title = text;
+      col.addEventListener('click', () => {
+        chart.querySelectorAll('.col.sel').forEach((c) => c.classList.remove('sel'));
+        col.classList.add('sel');
+        info.textContent = text;
+      });
+      chart.appendChild(col);
+
+      const lab = document.createElement('span');
+      if ((n - 1 - idx) % every === 0) lab.textContent = tickLabel(b, rep.unit);
+      if (b.from <= today && today <= b.to) lab.className = 'today';
+      days.appendChild(lab);
+    });
+    info.textContent = 'Нажми на столбик, чтобы увидеть подробности.';
+  }
+
+  function renderReport() {
+    const period = currentPeriod();
+    const today = L.dayKey(Date.now());
+    $('p-from').value = period.from;
+    $('p-to').value = period.to;
+    $('p-from').max = today;
+    $('p-to').max = today;
+    document.querySelectorAll('#chips .chip').forEach((c) => c.classList.toggle('on', !custom && c.dataset.p === preset));
+
+    const rep = L.report(state, period.from, period.to);
+    const sum = rep.summary;
+    $('p-perday').textContent = sum.perDay === null ? '—' : sum.perDay.toLocaleString('ru-RU');
+    $('p-actual').textContent = sum.actual === null ? '—' : fmtMin(sum.actual);
+    $('p-actual-l').textContent =
+      'реальный интервал' + (sum.target === null ? '' : ` · заданный ${fmtMin(sum.target)}`);
+    $('p-ontime').textContent = sum.gaps ? Math.round((sum.onTime / sum.gaps) * 100) + '%' : '—';
+    $('p-ontime-l').textContent = 'выдержано вовремя' + (sum.gaps ? ` (${sum.onTime} из ${sum.gaps})` : '');
+    $('p-longest').textContent = sum.gaps ? fmtMin(sum.longest) : '—';
+
+    $('h-iv').textContent = 'Интервал: заданный и реальный' + UNIT_SUFFIX[rep.unit];
+    drawChart(
+      'iv',
+      rep,
+      [
+        { cls: 's1', value: (b) => b.target },
+        { cls: 's2', value: (b) => b.actual },
+      ],
+      (max) => fmtMin(max),
+      (b) => {
+        if (!b.days) return 'нет записей';
+        let t = `заданный ${fmtMin(b.target)}, реальный ${b.actual === null ? 'нет данных' : fmtMin(b.actual)}`;
+        if (b.gaps) t += `. Вовремя ${b.onTime} из ${b.gaps}`;
+        return t;
+      }
+    );
+
+    $('h-cig').textContent = 'Сигарет в день' + UNIT_SUFFIX[rep.unit];
+    drawChart(
+      'cig',
+      rep,
+      [{ cls: 'mono', value: (b) => b.perDay }],
+      (max) => String(Math.ceil(max)),
+      (b) => {
+        if (!b.days) return 'нет записей';
+        if (rep.unit === 'day') return `${b.total} ${plural(b.total, CIG)}`;
+        return `в среднем ${b.perDay.toLocaleString('ru-RU')} в день (всего ${b.total} за ${b.days} дн. с записями)`;
+      }
+    );
+  }
+
   function renderStats() {
     const st = L.stats(state, Date.now());
     $('s-today').textContent = st.today;
@@ -155,40 +269,7 @@
     $('s-gap').textContent = st.avgGapMin === null ? '—' : fmtMin(st.avgGapMin);
     $('s-saved').textContent = st.saved.toLocaleString('ru-RU') + ' ₽';
 
-    const max = Math.max(1, ...st.series.map((d) => d.count || 0));
-    const chart = $('chart'), days = $('chart-days'), info = $('chart-info');
-    chart.innerHTML = `<span class="max">${max}</span>`;
-    days.innerHTML = '';
-    const describe = (d) => {
-      if (d.count === null) return `${fmtDay(d.key)}: нет записей`;
-      let t = `${fmtDay(d.key)}: ${d.count} ${plural(d.count, CIG)}, интервал ${fmtMin(d.interval)}`;
-      t += d.early ? `, срывов: ${d.early}` : ', без срывов';
-      return t;
-    };
-    st.series.forEach((d, idx) => {
-      const col = document.createElement('div');
-      col.className = 'col';
-      const bar = document.createElement('div');
-      if (d.count === null) bar.className = 'bar empty';
-      else {
-        bar.className = 'bar';
-        bar.style.height = Math.max(2, Math.round((d.count / max) * 88)) + 'px';
-      }
-      col.appendChild(bar);
-      col.title = describe(d);
-      col.addEventListener('click', () => {
-        chart.querySelectorAll('.col.sel').forEach((c) => c.classList.remove('sel'));
-        col.classList.add('sel');
-        info.textContent = describe(d);
-      });
-      chart.appendChild(col);
-
-      const lab = document.createElement('span');
-      lab.textContent = String(Number(d.key.slice(8)));
-      if (idx === st.series.length - 1) lab.className = 'today';
-      days.appendChild(lab);
-    });
-    info.textContent = 'Нажми на столбик, чтобы увидеть день.';
+    renderReport();
 
     const est = L.perDay(state.interval);
     $('iv').textContent = fmtMin(state.interval);
@@ -258,6 +339,22 @@
     haptic(wasReady ? 'success' : 'warning');
     renderAll();
   });
+
+  $('chips').addEventListener('click', (e) => {
+    const chip = e.target.closest('.chip');
+    if (!chip) return;
+    preset = chip.dataset.p;
+    custom = null;
+    renderReport();
+  });
+  function onRangeChange() {
+    const from = $('p-from').value, to = $('p-to').value;
+    if (!from || !to) return;
+    custom = from <= to ? { from, to } : { from: to, to: from };
+    renderReport();
+  }
+  $('p-from').addEventListener('change', onRangeChange);
+  $('p-to').addEventListener('change', onRangeChange);
 
   const STEP_MIN = 5;
   function bump(delta) {
@@ -337,6 +434,11 @@
   async function start() {
     if (tg) {
       try { tg.ready(); tg.expand(); } catch (e) { /* вне Telegram */ }
+    }
+    if (inTelegram) {
+      const applyScheme = () => (document.documentElement.dataset.scheme = tg.colorScheme || 'light');
+      applyScheme();
+      tg.onEvent('themeChanged', applyScheme);
     }
     try {
       state = await load();
