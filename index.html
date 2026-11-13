@@ -1,0 +1,228 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<title>Интервал</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<style>
+  :root {
+    --bg: var(--tg-theme-bg-color, #ffffff);
+    --text: var(--tg-theme-text-color, #16181c);
+    --hint: var(--tg-theme-hint-color, #7d8590);
+    --card: var(--tg-theme-secondary-bg-color, #f1f2f5);
+    --accent: var(--tg-theme-button-color, #2f81f7);
+    --accent-text: var(--tg-theme-button-text-color, #ffffff);
+    --good: #2fa84f;
+    --track: color-mix(in srgb, var(--hint) 22%, transparent);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: var(--tg-theme-bg-color, #17191d);
+      --text: var(--tg-theme-text-color, #f2f3f5);
+      --hint: var(--tg-theme-hint-color, #8b939e);
+      --card: var(--tg-theme-secondary-bg-color, #22252b);
+      --good: #3fc463;
+    }
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; background: var(--bg); color: var(--text); }
+  body {
+    font: 16px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    padding: 16px 16px calc(24px + env(safe-area-inset-bottom));
+    max-width: 480px; margin: 0 auto;
+  }
+  [hidden] { display: none !important; }
+  h1 { font-size: 22px; margin: 8px 0 4px; }
+  p { margin: 0; }
+  .hint { color: var(--hint); font-size: 14px; }
+  .center { text-align: center; }
+
+  .topbar { display: flex; justify-content: flex-end; }
+  .icon-btn {
+    border: 0; background: none; color: var(--hint); padding: 8px; margin: -8px;
+    font-size: 22px; line-height: 1; cursor: pointer;
+  }
+
+  .ring { position: relative; width: min(280px, 78vw); aspect-ratio: 1; margin: 4px auto 12px; }
+  .ring svg { width: 100%; height: 100%; transform: rotate(-90deg); display: block; }
+  .ring circle { fill: none; stroke-width: 12; }
+  .ring .track { stroke: var(--track); }
+  .ring .prog { stroke: var(--accent); stroke-linecap: round; transition: stroke-dashoffset .6s linear, stroke .3s; }
+  .ring.ready .prog { stroke: var(--good); }
+  .ring .inner {
+    position: absolute; inset: 0; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; gap: 2px;
+  }
+  .clock { font-size: 46px; font-weight: 600; font-variant-numeric: tabular-nums; letter-spacing: -1px; }
+  .status { font-size: 15px; min-height: 22px; margin-bottom: 12px; }
+  .status b { font-weight: 600; }
+  .status .ok { color: var(--good); }
+
+  .btn {
+    display: block; width: 100%; border: 0; border-radius: 14px; padding: 16px;
+    font: inherit; font-size: 18px; font-weight: 600; cursor: pointer;
+    background: var(--accent); color: var(--accent-text);
+  }
+  .btn:active { opacity: .8; }
+  .btn.ghost { background: none; color: var(--accent); font-size: 15px; font-weight: 500; padding: 10px; }
+  .btn.danger { background: none; color: #e5484d; font-size: 15px; font-weight: 500; }
+  .undo-slot { min-height: 42px; }
+
+  .card { background: var(--card); border-radius: 14px; padding: 14px 16px; margin-top: 12px; }
+  .card h2 { font-size: 13px; font-weight: 600; color: var(--hint); margin: 0 0 10px; text-transform: uppercase; letter-spacing: .4px; }
+  .tiles { display: grid; grid-template-columns: 1fr 1fr; gap: 12px 16px; }
+  .tile .v { font-size: 22px; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .tile .l { font-size: 13px; color: var(--hint); }
+
+  .stepper { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+  .step-val { font-size: 22px; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .step-btn {
+    border: 0; border-radius: 12px; width: 64px; height: 48px; cursor: pointer;
+    font: inherit; font-size: 18px; font-weight: 600; background: var(--bg); color: var(--accent);
+  }
+  .step-btn:active { opacity: .7; }
+  .step-btn:disabled { opacity: .35; }
+
+  .sleep-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .sleep-row input { background: var(--bg); margin-top: 4px; min-height: 48px; }
+  .sleep-info { margin: 10px 0; min-height: 20px; }
+  .sleep-info.bad { color: #e5484d; }
+  .sleep-actions { display: flex; gap: 8px; align-items: center; }
+  .btn.small { font-size: 15px; padding: 11px; border-radius: 12px; }
+  .sleep-actions .ghost { width: auto; flex: none; }
+
+  .chart { display: flex; align-items: flex-end; gap: 2px; height: 104px; position: relative; }
+  .chart .max { position: absolute; top: -4px; left: 0; font-size: 11px; color: var(--hint); }
+  .col { flex: 1; height: 100%; display: flex; flex-direction: column; justify-content: flex-end; cursor: pointer; }
+  .bar { background: var(--accent); border-radius: 4px 4px 0 0; min-height: 2px; opacity: .85; }
+  .bar.empty { background: var(--track); height: 2px; border-radius: 0; }
+  .col.sel .bar { opacity: 1; outline: 2px solid var(--text); outline-offset: 1px; }
+  .days { display: flex; gap: 2px; margin-top: 4px; }
+  .days span { flex: 1; text-align: center; font-size: 10px; color: var(--hint); font-variant-numeric: tabular-nums; }
+  .days span.today { color: var(--text); font-weight: 700; }
+  .chart-info { margin-top: 8px; font-size: 14px; min-height: 20px; }
+
+  label { display: block; font-size: 14px; color: var(--hint); margin: 14px 0 6px; }
+  input {
+    width: 100%; border: 1px solid var(--track); border-radius: 12px; padding: 13px 14px;
+    font: inherit; font-size: 17px; background: var(--card); color: var(--text); outline: none;
+  }
+  input:focus { border-color: var(--accent); }
+  .form-actions { margin-top: 22px; }
+  .err { color: #e5484d; font-size: 14px; margin-top: 10px; min-height: 20px; }
+
+  .sheet-back { position: fixed; inset: 0; background: rgba(0,0,0,.45); display: flex; align-items: flex-end; z-index: 10; }
+  .sheet {
+    background: var(--bg); width: 100%; max-width: 480px; margin: 0 auto; max-height: 92vh; overflow: auto;
+    border-radius: 18px 18px 0 0; padding: 18px 16px calc(18px + env(safe-area-inset-bottom));
+  }
+  .sheet h1 { margin-top: 0; }
+</style>
+</head>
+<body>
+
+<div id="loading" class="center hint" style="padding-top:40vh">Загрузка…</div>
+
+<div id="fatal" class="center" style="padding-top:30vh" hidden>
+  <p>Не получилось загрузить данные.</p>
+  <p class="hint" id="fatal-msg" style="margin:8px 0 16px"></p>
+  <button class="btn" onclick="location.reload()">Попробовать ещё раз</button>
+</div>
+
+<form id="onboard" hidden novalidate>
+  <h1>Растягиваем интервал</h1>
+  <p class="hint">Куришь не чаще, чем раз в заданный интервал. Интервал увеличиваешь сам, когда готов.</p>
+  <label for="ob-interval">Стартовый интервал между сигаретами, минут</label>
+  <input id="ob-interval" inputmode="numeric" value="60">
+  <label for="ob-baseline">Сколько сигарет в день куришь сейчас</label>
+  <input id="ob-baseline" inputmode="numeric" value="20">
+  <label for="ob-price">Цена пачки, ₽</label>
+  <input id="ob-price" inputmode="numeric" value="200">
+  <div class="err" id="ob-err"></div>
+  <div class="form-actions"><button class="btn" type="submit">Начать</button></div>
+</form>
+
+<div id="main" hidden>
+  <div class="topbar"><button class="icon-btn" id="open-settings" aria-label="Настройки">⚙</button></div>
+
+  <div class="ring" id="ring">
+    <svg viewBox="0 0 264 264" aria-hidden="true">
+      <circle class="track" cx="132" cy="132" r="120"></circle>
+      <circle class="prog" id="prog" cx="132" cy="132" r="120" stroke-dasharray="753.98" stroke-dashoffset="753.98"></circle>
+    </svg>
+    <div class="inner">
+      <div class="hint">с последней сигареты</div>
+      <div class="clock" id="clock">0:00</div>
+      <div class="hint" id="target"></div>
+    </div>
+  </div>
+
+  <div class="status center" id="status"></div>
+
+  <button class="btn" id="smoke">Я покурил</button>
+  <div class="undo-slot"><button class="btn ghost" id="undo" hidden>Отменить последнюю запись</button></div>
+
+  <div class="card">
+    <h2>Интервал между сигаретами</h2>
+    <div class="stepper">
+      <button class="step-btn" id="minus" aria-label="Уменьшить на 5 минут">−5</button>
+      <div class="center"><div class="step-val" id="iv"></div><div class="hint" id="iv-est"></div></div>
+      <button class="step-btn" id="plus" aria-label="Увеличить на 5 минут">+5</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Сон прошлой ночью</h2>
+    <div class="sleep-row">
+      <div><div class="hint">Лёг</div><input type="time" id="sl-bed" aria-label="Во сколько лёг"></div>
+      <div><div class="hint">Встал</div><input type="time" id="sl-wake" aria-label="Во сколько встал"></div>
+    </div>
+    <div class="hint sleep-info" id="sl-info"></div>
+    <div class="sleep-actions">
+      <button class="btn small" id="sl-save">Сохранить сон</button>
+      <button class="btn ghost" id="sl-clear" hidden>Убрать</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Сигареты</h2>
+    <div class="tiles">
+      <div class="tile"><div class="v" id="s-today">0</div><div class="l">сегодня</div></div>
+      <div class="tile"><div class="v" id="s-yesterday">0</div><div class="l">вчера</div></div>
+      <div class="tile"><div class="v" id="s-gap">—</div><div class="l">средний промежуток</div></div>
+      <div class="tile"><div class="v" id="s-saved">0 ₽</div><div class="l">сэкономлено</div></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Сигарет в день, 14 дней</h2>
+    <div class="chart" id="chart"></div>
+    <div class="days" id="chart-days"></div>
+    <div class="chart-info hint" id="chart-info"></div>
+  </div>
+
+</div>
+
+<div class="sheet-back" id="settings" hidden>
+  <form class="sheet" id="settings-form" novalidate>
+    <h1>Настройки</h1>
+    <label for="st-interval">Интервал между сигаретами, минут (точное значение)</label>
+    <input id="st-interval" inputmode="numeric">
+    <label for="st-baseline">Сколько курил в день до начала</label>
+    <input id="st-baseline" inputmode="numeric">
+    <label for="st-price">Цена пачки, ₽</label>
+    <input id="st-price" inputmode="numeric">
+    <div class="err" id="st-err"></div>
+    <div class="form-actions">
+      <button class="btn" type="submit">Сохранить</button>
+      <button class="btn ghost" type="button" id="close-settings">Закрыть</button>
+      <button class="btn danger" type="button" id="reset">Стереть все данные</button>
+    </div>
+  </form>
+</div>
+
+<script src="logic.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
